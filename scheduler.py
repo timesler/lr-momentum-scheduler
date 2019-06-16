@@ -257,10 +257,10 @@ class OneCyclePolicy(ListScheduler):
             ]
         else:
             lrs = np.hstack([
-                np.linspace(l * 1e-1, l, phase_epochs),
-                np.linspace(l, l * 1e-1, phase_epochs),
-                np.linspace(l * 1e-1, l * 1e-2, epochs - 2 * phase_epochs),
-            ]
+                np.linspace(lr * 1e-1, lr, phase_epochs),
+                np.linspace(lr, lr * 1e-1, phase_epochs),
+                np.linspace(lr * 1e-1, lr * 1e-2, epochs - 2 * phase_epochs),
+            ])
         
         if momentum_rng is not None:
             momentum_rng = np.array(momentum_rng)

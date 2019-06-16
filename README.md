@@ -28,7 +28,7 @@ This repo contains pytorch scheduler classes for implementing the following:
     ```
 1. Run range test to find suitable LR:
     ```python
-    optimizer = optim.SGD(mdl.parameters())
+    optimizer = optim.SGD(mdl.parameters(), lr=1e-7)
     range_finder = RangeFinder(optimizer, epochs)
     
     losses = []
@@ -52,6 +52,7 @@ This repo contains pytorch scheduler classes for implementing the following:
     ```
 1. Define 1cycle policy optimizer:
     ```python
+    optimizer = optim.SGD(mdl.parameters(), lr=1e-3)
     one_cycle = OneCyclePolicy(optimizer, 1e-2, epochs, momentum_rng=[0.85, 0.95])
     ```
 1. Train model:
