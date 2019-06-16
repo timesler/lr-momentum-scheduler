@@ -1,9 +1,8 @@
 # lr-momentum-scheduler
 
-This repo contains pytorch scheduler and optimizer classes for implementing the following:
+This repo contains pytorch scheduler classes for implementing the following:
 
-* Arbitrary LR schedules
-* Optimizers that follow arbitrary LR schedules (i.e., that don't require a separate scheduler)
+* Arbitrary LR and momentum schedules
 * The 1cycle policy optimizer
 
 ## Usage (1cycle policy)
@@ -12,6 +11,7 @@ This repo contains pytorch scheduler and optimizer classes for implementing the 
     ```python
     import torch
     from torch import nn
+    from torch import optim
     from scheduler import *
     
     epochs = 100
@@ -28,17 +28,19 @@ This repo contains pytorch scheduler and optimizer classes for implementing the 
     ```
 1. Run range test to find suitable LR:
     ```python
-    range_finder = RangeFinder(mdl.parameters(), epochs=epochs)
+    optimizer = optim.SGD(mdl.parameters())
+    range_finder = RangeFinder(optimizer, epochs)
     
     losses = []
     for epoch in range(epochs):
         loss = mdl(x).mean()
         loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
         range_finder.step()
-        range_finder.zero_grad()
         losses.append(loss.item())
     ```
-    Based on results above, let's say the best LR is 1e-2
+    Based on results above, let's say the max LR is 1e-2
 1. Re-instantiate model:
     ```python
     mdl = nn.Sequential(
@@ -50,7 +52,7 @@ This repo contains pytorch scheduler and optimizer classes for implementing the 
     ```
 1. Define 1cycle policy optimizer:
     ```python
-    one_cycle = OneCyclePolicy(mdl.parameters(), lr=1e-2, epochs=epochs)
+    one_cycle = OneCyclePolicy(optimizer, 1e-2, epochs, momentum_rng=[0.85, 0.95])
     ```
 1. Train model:
     ```python
@@ -58,8 +60,9 @@ This repo contains pytorch scheduler and optimizer classes for implementing the 
     for epoch in range(epochs):
         loss = mdl(x).mean()
         loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
         one_cycle.step()
-        one_cycle.zero_grad()
         losses.append(loss.item())
     print(losses)
     ```
