@@ -14,7 +14,7 @@ class _LRMomentumScheduler(lr_scheduler._LRScheduler):
                     raise KeyError("param 'initial_momentum' is not specified "
                                    "in param_groups[{}] when resuming an optimizer".format(i))
         self.base_momentums = list(map(lambda group: group['initial_momentum'], optimizer.param_groups))
-        super(_LRMomentumScheduler, self).__init__(optimizer, last_epoch)
+        super().__init__(optimizer, last_epoch)
 
     def get_lr(self):
         raise NotImplementedError
@@ -32,11 +32,12 @@ class _LRMomentumScheduler(lr_scheduler._LRScheduler):
 
 
 class ParameterUpdate(object):
-    """A callable class used to define an arbitrary  schedule defined by a list.
-    This object is designed to be passed to the LambdaLRMomentum scheduler to apply the given schedule.
+    """A callable class used to define an arbitrary schedule defined by a list.
+    This object is designed to be passed to the LambdaLR or LambdaScheduler scheduler to apply
+    the given schedule.
     
     Arguments:
-        lrs {Union[list, numpy.array]} -- List or numpy array defining LR schedule.
+        lrs {numpy.array} -- List or numpy array defining LR schedule.
     """
 
     def __init__(self, params):
@@ -50,10 +51,10 @@ def apply_lambda(last_epoch, bases, lambdas):
         return [base * lmbda(last_epoch) for lmbda, base in zip(lambdas, bases)]
     
 
-class LambdaLRMomentum(_LRMomentumScheduler):
-    """Sets the learning rate and momentum of each parameter group to the
-    initial lr and momentum times a given function. When last_epoch=-1, sets
-    initial lr and momentum to the optimizer values.
+class LambdaScheduler(_LRMomentumScheduler):
+    """Sets the learning rate and momentum of each parameter group to the initial lr and momentum
+    times a given function. When last_epoch=-1, sets initial lr and momentum to the optimizer
+    values.
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -75,7 +76,7 @@ class LambdaLRMomentum(_LRMomentumScheduler):
         ...     lambda epoch: max(0, (50 - epoch) // 50),
         ...     lambda epoch: 0.99 ** epoch
         ... ]
-        >>> scheduler = LambdaLRMomentum(optimizer, lr_lambda, mom_lambda)
+        >>> scheduler = LambdaScheduler(optimizer, lr_lambda, mom_lambda)
         >>> for epoch in range(100):
         >>>     train(...)
         >>>     validate(...)
@@ -98,7 +99,7 @@ class LambdaLRMomentum(_LRMomentumScheduler):
             self.lr_lambdas = list(lr_lambda)
             self.momentum_lambdas = list(momentum_lambda)
         self.last_epoch = last_epoch
-        super(LambdaLRMomentum, self).__init__(optimizer, last_epoch)
+        super().__init__(optimizer, last_epoch)
 
     def state_dict(self):
         """Returns the state of the scheduler as a :class:`dict`.
@@ -147,46 +148,59 @@ class LambdaLRMomentum(_LRMomentumScheduler):
         return apply_lambda(self.last_epoch, self.base_momentums, self.momentum_lambdas)
 
 
-class ListScheduler(lr_scheduler.LambdaLR):
-    """LR scheduler that implements an arbitrary schedule.
-    
-    Arguments:
-        optimizer {torch.optim.optimizer.Optimizer} -- Pytorch optimizer.
-        lrs {Union[list, numpy.array]} -- Learning rate schedule.
+class ListScheduler(LambdaScheduler):
+    """Sets the learning rate and momentum of each parameter group to values defined by lists.
+    When last_epoch=-1, sets initial lr and momentum to the optimizer values. One of both of lr
+    and momentum schedules may be specified.
+
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        lrs (list or numpy.ndarray): A list of learning rates, or a list of lists, one for each
+            parameter group. One- or two-dimensional numpy arrays may also be passed.
+        momentum (list or numpy.ndarray): A list of momentums, or a list of lists, one for each
+            parameter group. One- or two-dimensional numpy arrays may also be passed.
+        last_epoch (int): The index of last epoch. Default: -1.
+
+    Example:
+        >>> # Assuming optimizer has two groups.
+        >>> lrs = [
+        ...     np.linspace(0.01, 0.1, 100),
+        ...     np.logspace(-2, 0, 100)
+        ... ]
+        >>> momentums = [
+        ...     np.linspace(0.85, 0.95, 100),
+        ...     np.linspace(0.8, 0.99, 100)
+        ... ]
+        >>> scheduler = ListScheduler(optimizer, lrs, momentums)
+        >>> for epoch in range(100):
+        >>>     train(...)
+        >>>     validate(...)
+        >>>     scheduler.step()
     """
 
-    def __init__(self, optimizer, lrs, momentums):
-        self.lr_lambda = ParameterUpdate(lrs)
-        super().__init__(optimizer, self.lr_lambda)
+    def __init__(self, optimizer, lrs=None, momentums=None, last_epoch=-1):
+        if lrs is None:
+            lr_lambda = lambda x: x
+        else:
+            lrs = np.array(lrs) if isinstance(lrs, (list, tuple)) else lrs
+            if len(lrs.shape) == 1:
+                lr_lambda = ParameterUpdate(lrs)
+            else:
+                lr_lambda = [ParameterUpdate(l) for l in lrs]
+        
+        if momentums is None:
+            momentum_lambda = lambda x: x
+        else:
+            momentums = np.array(momentums) if isinstance(momentums, (list, tuple)) else momentums
+            if len(momentums.shape) == 1:
+                momentum_lambda = ParameterUpdate(momentums)
+            else:
+                momentum_lambda = [ParameterUpdate(l) for l in momentums]
+        super().__init__(optimizer, lr_lambda, momentum_lambda)
 
 
-class ScheduledOptimizer(ListScheduler):
-    """SGD Optimizer class that follows a specific LR schedule.
-    
-    Arguments:
-        optimizer {torch.optim.optimizer.Optimizer} -- Pytorch optimizer.
-        lrs {Union[list, numpy.array]} -- Learning rate schedule.
-    """
-    
-    def __init__(self, params, lrs):
-        self.optimizer = SGD(params, lr=lrs[0])
-        super().__init__(self.optimizer, lrs)
-
-    def step(self, epoch=None):
-        self.optimizer.step()
-
-        if epoch is None:
-            epoch = self.last_epoch + 1
-        self.last_epoch = epoch
-        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
-            param_group['lr'] = lr
-    
-    def zero_grad(self):
-        self.optimizer.zero_grad()
-
-
-class RangeFinder(ScheduledOptimizer):
-    """SGD Optimizer class that implements the LR range search specified in:
+class RangeFinder(ListScheduler):
+    """Scheduler class that implements the LR range search specified in:
 
         A disciplined approach to neural network hyper-parameters: Part 1 -- learning rate, batch
         size, momentum, and weight decay. Leslie N. Smith, 2018, arXiv:1803.09820.
@@ -194,39 +208,77 @@ class RangeFinder(ScheduledOptimizer):
     Logarithmically spaced learning rates from 1e-7 to 1 are searched. The number of increments in
     that range is determined by 'epochs'.
     
-    Arguments:
-        params {generator} -- Module parameters to be optimized.
-        epochs {int} -- The number of epochs to use during search.
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        epochs (int): Number of epochs over which to run test.
+
+    Example:
+        >>> scheduler = RangeFinder(optimizer, 100)
+        >>> for epoch in range(100):
+        >>>     train(...)
+        >>>     validate(...)
+        >>>     scheduler.step()
     """
 
-    def __init__(self, params, epochs):
+    def __init__(self, optimizer, epochs):
         lrs = np.logspace(-7, 0, epochs)
-        super().__init__(params=params, lrs=lrs)
+        super().__init__(optimizer, lrs)
 
 
-class OneCyclePolicy(ScheduledOptimizer):
-    """SGD Optimizer class that implements the 1cycle policy search specified in:
+class OneCyclePolicy(ListScheduler):
+    """Scheduler class that implements the 1cycle policy search specified in:
 
         A disciplined approach to neural network hyper-parameters: Part 1 -- learning rate, batch
         size, momentum, and weight decay. Leslie N. Smith, 2018, arXiv:1803.09820.
     
-    Arguments:
-        params {generator} -- Module parameters to be optimized.
-        lr {float} -- Maximum learning rate in range.
-        epochs {int} -- The number of epochs to use during search.
-        
-    Keyword Arguments:
-        phase_ratio {float} -- Fraction of epochs used for the increasing and decreasing phase of
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        lr (float or list). Maximum learning rate in range. If a list of values is passed, they
+            should correspond to parameter groups.
+        epochs (int): The number of epochs to use during search.
+        momentum_rng (list). Optional upper and lower momentum values (may be both equal). Set to
+            None to run without momentum. Default: [0.85, 0.95]. If a list of lists is passed, they
+            should correspond to parameter groups.
+        phase_ratio (float): Fraction of epochs used for the increasing and decreasing phase of
             the schedule. For example, if phase_ratio=0.45 and epochs=100, the learning rate will
             increase from lr/10 to lr over 45 epochs, then decrease back to lr/10 over 45 epochs,
-            then decrease to lr/100 over the remaining 10 epochs. (default: {0.45})
+            then decrease to lr/100 over the remaining 10 epochs. Default: 0.45.
     """
 
-    def __init__(self, params, lr, epochs, phase_ratio=0.45):
+    def __init__(self, optimizer, lr, epochs, momentum_rng=[0.85, 0.95], phase_ratio=0.45):
         phase_epochs = int(phase_ratio * epochs)
-        lrs = np.hstack([
-            np.linspace(lr * 1e-1, lr, phase_epochs),
-            np.linspace(lr, lr * 1e-1, phase_epochs),
-            np.linspace(lr * 1e-1, lr * 1e-2, epochs - 2 * phase_epochs),
-        ])
-        super().__init__(params=params, lrs=lrs)
+        if isinstance(lr, (list, tuple)):
+            lrs = [
+                np.hstack([
+                    np.linspace(l * 1e-1, l, phase_epochs),
+                    np.linspace(l, l * 1e-1, phase_epochs),
+                    np.linspace(l * 1e-1, l * 1e-2, epochs - 2 * phase_epochs),
+                ]) for  l in lr
+            ]
+        else:
+            lrs = np.hstack([
+                np.linspace(l * 1e-1, l, phase_epochs),
+                np.linspace(l, l * 1e-1, phase_epochs),
+                np.linspace(l * 1e-1, l * 1e-2, epochs - 2 * phase_epochs),
+            ]
+        
+        if momentum_rng is not None:
+            momentum_rng = np.array(momentum_rng)
+            if len(momentum_rng.shape) == 2:
+                momentums = [
+                    np.hstack([
+                        np.linspace(m[0], m[1], phase_epochs),
+                        np.linspace(m[1], m[0], phase_epochs),
+                        np.linspace(m[0], m[0], epochs - 2 * phase_epochs),
+                    ]) for m in momentum_rng
+                ]
+            else:
+                momentums = np.hstack([
+                    np.linspace(momentum_rng[0], momentum_rng[1], phase_epochs),
+                    np.linspace(momentum_rng[1], momentum_rng[0], phase_epochs),
+                    np.linspace(momentum_rng[0], momentum_rng[0], epochs - 2 * phase_epochs),
+                ])
+        else:
+            momentums = None
+        
+        super().__init__(optimizer, lrs, momentums)
