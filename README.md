@@ -8,7 +8,7 @@ This repo contains pytorch scheduler classes for implementing the following:
 * Learning rate range finder for preparing the 1cycle policy
 * The 1cycle policy scheduler
 
-These classes inherit from, and and based on, the core learning rate schedulers included in Pytorch, and can be used in a identical manner, with the added ability to schedule momentum.
+These classes inherit from, and and based on, the core learning rate schedulers included in Pytorch, and can be used in an identical manner, with the added ability to schedule momentum.
 
 ## Schedulers
 
@@ -22,7 +22,7 @@ help(scheduler.RangeFinder)
 help(scheduler.OneCyclePolicy)
 ```
 
-1. `LambdaScheduler`: based on pytorch's `LambdaLR`, but can also (optionally) schedule momentum in the same way. Note that, like LambdaLR, individual schdules can be defined for each parameter group in the optimizer by passing a list of lambdas/functions/callables for LR and momentum.
+1. `LambdaScheduler`: based on pytorch's `LambdaLR`, but can also (optionally) schedule momentum in the same way. Note that, like LambdaLR, individual schedules can be defined for each parameter group in the optimizer by passing a list of lambdas/functions/callables for LR and momentum.
 1. `ListScheduler`: similar to the `LambdaScheduler`, but defines LR and momentum using passed lists. Per-parameter schedules are specified using lists of lists or 2D numpy arrays.
 1. `RangeFinder`: a simple predefined schedule that varies LR from 1e-7 to 1 over a certain number of epochs. This is a preparatory step for the One Cycle Policy.
 1. `OneCyclePolicy`: The One Cycle Policy scheduler for LR and momentum, see [References](#references).
