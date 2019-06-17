@@ -36,7 +36,7 @@ help(scheduler.OneCyclePolicy)
     from torch import optim
     from scheduler import *
     
-    epochs = 100
+    epochs = 50
     x = torch.randn(100, 10)
     ```
 1. Instantiate model:
@@ -50,11 +50,16 @@ help(scheduler.OneCyclePolicy)
     ```
 1. Run range test to find suitable LR:
     ```python
-    optimizer = optim.SGD(mdl.parameters(), lr=1e-7)
+    optimizer = optim.SGD(mdl.parameters(), lr=1.23e-4) # optimizer LR is ignored
     range_finder = RangeFinder(optimizer, epochs)
     
     losses = []
     for epoch in range(epochs):
+        # Print achieved schedule
+        current_lr = [g['lr'] for g in optimizer.param_groups]
+        current_mom = [g['momentum'] for g in optimizer.param_groups]
+        print('LR: {}, Momentum: {}'.format(current_lr, current_mom))
+
         loss = mdl(x).mean()
         loss.backward()
         optimizer.step()
@@ -74,20 +79,24 @@ help(scheduler.OneCyclePolicy)
     ```
 1. Define 1cycle policy optimizer:
     ```python
-    optimizer = optim.SGD(mdl.parameters(), lr=1e-3)
+    optimizer = optim.SGD(mdl.parameters(), lr=1.23e-4) # optimizer LR is ignored
     one_cycle = OneCyclePolicy(optimizer, 1e-2, epochs, momentum_rng=[0.85, 0.95])
     ```
 1. Train model:
     ```python
     losses = []
     for epoch in range(epochs):
+        # Print achieved schedule
+        current_lr = [g['lr'] for g in optimizer.param_groups]
+        current_mom = [g['momentum'] for g in optimizer.param_groups]
+        print('LR: {}, Momentum: {}'.format(current_lr, current_mom))
+
         loss = mdl(x).mean()
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
         one_cycle.step()
         losses.append(loss.item())
-    print(losses)
     ```
 
 ## References

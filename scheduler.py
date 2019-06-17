@@ -37,14 +37,16 @@ class ParameterUpdate(object):
     the given schedule.
     
     Arguments:
-        lrs {numpy.array} -- List or numpy array defining LR schedule.
+        params {list or numpy.array} -- List or numpy array defining parameter schedule.
+        base_param {float} -- Parameter value used to initialize the optimizer.
     """
 
-    def __init__(self, params):
+    def __init__(self, params, base_param):
         self.params = np.hstack([params, 0])
+        self.base_param = base_param
 
     def __call__(self, epoch):
-        return self.params[epoch] / self.params[0]
+        return self.params[epoch] / self.base_param
 
 
 def apply_lambda(last_epoch, bases, lambdas):
@@ -85,19 +87,23 @@ class LambdaScheduler(_LRMomentumScheduler):
 
     def __init__(self, optimizer, lr_lambda=lambda x:x, momentum_lambda=lambda x:x, last_epoch=-1):
         self.optimizer = optimizer
+        
         if not isinstance(lr_lambda, (list, tuple)):
             self.lr_lambdas = [lr_lambda] * len(optimizer.param_groups)
-            self.momentum_lambdas = [momentum_lambda] * len(optimizer.param_groups)
         else:
             if len(lr_lambda) != len(optimizer.param_groups):
                 raise ValueError("Expected {} lr_lambdas, but got {}".format(
                     len(optimizer.param_groups), len(lr_lambda)))
             self.lr_lambdas = list(lr_lambda)
+        
+        if not isinstance(momentum_lambda, (list, tuple)):
+            self.momentum_lambdas = [momentum_lambda] * len(optimizer.param_groups)
+        else:
             if len(momentum_lambda) != len(optimizer.param_groups):
                 raise ValueError("Expected {} momentum_lambdas, but got {}".format(
                     len(optimizer.param_groups), len(momentum_lambda)))
-            self.lr_lambdas = list(lr_lambda)
             self.momentum_lambdas = list(momentum_lambda)
+
         self.last_epoch = last_epoch
         super().__init__(optimizer, last_epoch)
 
@@ -148,10 +154,35 @@ class LambdaScheduler(_LRMomentumScheduler):
         return apply_lambda(self.last_epoch, self.base_momentums, self.momentum_lambdas)
 
 
+class ParameterUpdate(object):
+    """A callable class used to define an arbitrary schedule defined by a list.
+    This object is designed to be passed to the LambdaLR or LambdaScheduler scheduler to apply
+    the given schedule. If a base_param is zero, no updates are applied.
+    
+    Arguments:
+        params {list or numpy.array} -- List or numpy array defining parameter schedule.
+        base_param {float} -- Parameter value used to initialize the optimizer.
+    """
+
+    def __init__(self, params, base_param):
+        self.params = np.hstack([params, 0])
+        self.base_param = base_param
+
+        if base_param < 1e-12:
+            self.base_param = 1
+            self.params = self.params * 0.0 + 1.0
+
+    def __call__(self, epoch):
+        return self.params[epoch] / self.base_param
+
+
 class ListScheduler(LambdaScheduler):
     """Sets the learning rate and momentum of each parameter group to values defined by lists.
     When last_epoch=-1, sets initial lr and momentum to the optimizer values. One of both of lr
     and momentum schedules may be specified.
+
+    Note that the parameters used to initialize the optimizer are overriden by those defined by
+    this scheduler.
 
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -179,23 +210,24 @@ class ListScheduler(LambdaScheduler):
     """
 
     def __init__(self, optimizer, lrs=None, momentums=None, last_epoch=-1):
+        groups = optimizer.param_groups
         if lrs is None:
             lr_lambda = lambda x: x
         else:
             lrs = np.array(lrs) if isinstance(lrs, (list, tuple)) else lrs
             if len(lrs.shape) == 1:
-                lr_lambda = ParameterUpdate(lrs)
+                lr_lambda = [ParameterUpdate(lrs, g['lr']) for g in groups]
             else:
-                lr_lambda = [ParameterUpdate(l) for l in lrs]
+                lr_lambda = [ParameterUpdate(l, g['lr']) for l, g in zip(lrs, groups)]
         
         if momentums is None:
             momentum_lambda = lambda x: x
         else:
             momentums = np.array(momentums) if isinstance(momentums, (list, tuple)) else momentums
             if len(momentums.shape) == 1:
-                momentum_lambda = ParameterUpdate(momentums)
+                momentum_lambda = [ParameterUpdate(momentums, g['momentum']) for g in groups]
             else:
-                momentum_lambda = [ParameterUpdate(l) for l in momentums]
+                momentum_lambda = [ParameterUpdate(l, g['momentum']) for l, g in zip(momentums, groups)]
         super().__init__(optimizer, lr_lambda, momentum_lambda)
 
 
@@ -207,6 +239,9 @@ class RangeFinder(ListScheduler):
     
     Logarithmically spaced learning rates from 1e-7 to 1 are searched. The number of increments in
     that range is determined by 'epochs'.
+
+    Note that the parameters used to initialize the optimizer are overriden by those defined by
+    this scheduler.
     
     Args:
         optimizer (Optimizer): Wrapped optimizer.
@@ -265,6 +300,8 @@ class OneCyclePolicy(ListScheduler):
         if momentum_rng is not None:
             momentum_rng = np.array(momentum_rng)
             if len(momentum_rng.shape) == 2:
+                for i, g in enumerate(optimizer.param_groups):
+                    g['momentum'] = momentum_rng[i][1]
                 momentums = [
                     np.hstack([
                         np.linspace(m[1], m[0], phase_epochs),
@@ -273,6 +310,8 @@ class OneCyclePolicy(ListScheduler):
                     ]) for m in momentum_rng
                 ]
             else:
+                for i, g in enumerate(optimizer.param_groups):
+                    g['momentum'] = momentum_rng[1]
                 momentums = np.hstack([
                     np.linspace(momentum_rng[1], momentum_rng[0], phase_epochs),
                     np.linspace(momentum_rng[0], momentum_rng[1], phase_epochs),
