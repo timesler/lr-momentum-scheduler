@@ -267,16 +267,16 @@ class OneCyclePolicy(ListScheduler):
             if len(momentum_rng.shape) == 2:
                 momentums = [
                     np.hstack([
-                        np.linspace(m[0], m[1], phase_epochs),
                         np.linspace(m[1], m[0], phase_epochs),
-                        np.linspace(m[0], m[0], epochs - 2 * phase_epochs),
+                        np.linspace(m[0], m[1], phase_epochs),
+                        np.linspace(m[1], m[1], epochs - 2 * phase_epochs),
                     ]) for m in momentum_rng
                 ]
             else:
                 momentums = np.hstack([
-                    np.linspace(momentum_rng[0], momentum_rng[1], phase_epochs),
                     np.linspace(momentum_rng[1], momentum_rng[0], phase_epochs),
-                    np.linspace(momentum_rng[0], momentum_rng[0], epochs - 2 * phase_epochs),
+                    np.linspace(momentum_rng[0], momentum_rng[1], phase_epochs),
+                    np.linspace(momentum_rng[1], momentum_rng[1], epochs - 2 * phase_epochs),
                 ])
         else:
             momentums = None
